@@ -1,0 +1,48 @@
+--- a/aodv/aodv_mcast.h
++++ b/aodv/aodv_mcast.h
+@@ -1,6 +1,10 @@
+ #ifndef __aodv_mcast_h__
+ #define __aodv_mcast_h__
+ 
++#include <set>
++
+ class AODV : public Agent {
++
++    std::set<nsaddr_t> misbehaving_nodes;
++
++    bool is_misbehaving(nsaddr_t node);
++    void mark_misbehaving(nsaddr_t node);
+ };
+
+ #endif
+--- a/aodv/aodv_mcast.cc
++++ b/aodv/aodv_mcast.cc
+@@ -10,6 +10,32 @@
+ void AODV::recv(Packet *p, Handler *h) {
+     struct hdr_cmn *ch = HDR_CMN(p);
+     struct hdr_ip *ih = HDR_IP(p);
+ 
+     if (ih->saddr() == index) {
+         drop(p, DROP_RTR_ROUTE_LOOP);
+         return;
+     }
++
++    // Drop packet if it is from a misbehaving node
++    if (is_misbehaving(ih->saddr())) {
++        drop(p, DROP_RTR_ROUTE_LOOP);
++        return;
++    }
++
++    // Normal MAODV processing
++    recvAODV(p);
++}
++
++// Function to check if a node is marked as misbehaving
++bool AODV::is_misbehaving(nsaddr_t node) {
++    return misbehaving_nodes.find(node) != misbehaving_nodes.end();
++}
++
++// Function to mark a node as misbehaving
++void AODV::mark_misbehaving(nsaddr_t node) {
++    misbehaving_nodes.insert(node);
++}
