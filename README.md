@@ -5,4 +5,3 @@
    `patch -p1 < maodv_misbehavior.patch`
 4. Rebuild ns2:
    `make clean && make`
-
