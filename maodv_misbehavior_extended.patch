@@ -1,0 +1,103 @@
+--- a/aodv/aodv_mcast.h
++++ b/aodv/aodv_mcast.h
+@@ -1,6 +1,21 @@
+ #ifndef __aodv_mcast_h__
+ #define __aodv_mcast_h__
+ 
++#include <map>
++#include <set>
++
+ class AODV : public Agent {
++
++    std::set<nsaddr_t> misbehaving_nodes;
++    std::map<nsaddr_t, int> forward_count;
++    std::map<nsaddr_t, int> drop_count;
++    const double MIS_MAX_ERROR = 0.3; // 30% drop allowed
++
++    bool is_misbehaving(nsaddr_t node);
++    void mark_misbehaving(nsaddr_t node);
++    void update_forward_stats(nsaddr_t node, bool forwarded);
++    void evaluate_node(nsaddr_t node);
++
++    // Optional: pruning could be handled by invalidating routes
++    void prune_node(nsaddr_t node);
+ };
+ 
+ #endif
+
+
+--- a/aodv/aodv_mcast.cc
++++ b/aodv/aodv_mcast.cc
+@@ -10,6 +10,51 @@
+ void AODV::recv(Packet *p, Handler *h) {
+     struct hdr_cmn *ch = HDR_CMN(p);
+     struct hdr_ip *ih = HDR_IP(p);
+ 
+     if (ih->saddr() == index) {
+         drop(p, DROP_RTR_ROUTE_LOOP);
+         return;
+     }
++
++    nsaddr_t source = ih->saddr();
++
++    // Check if the packet is from a misbehaving node
++    if (is_misbehaving(source)) {
++        drop(p, DROP_RTR_ROUTE_LOOP);
++        return;
++    }
++
++    // Simulate packet drop decision
++    bool packet_forwarded = true;
++    double rand_val = Random::uniform();
++    if (rand_val < 0.1) {  // 10% drop probability for testing
++        packet_forwarded = false;
++        drop(p, DROP_RTR_NO_ROUTE);
++    }
++
++    // Update statistics
++    update_forward_stats(source, packet_forwarded);
++    evaluate_node(source);
++
++    if (packet_forwarded) {
++        recvAODV(p);
++    } else {
++        Packet::free(p);
++    }
++}
++
++bool AODV::is_misbehaving(nsaddr_t node) {
++    return misbehaving_nodes.find(node) != misbehaving_nodes.end();
++}
++
++void AODV::mark_misbehaving(nsaddr_t node) {
++    misbehaving_nodes.insert(node);
++    prune_node(node);
++}
++
++void AODV::update_forward_stats(nsaddr_t node, bool forwarded) {
++    if (forwarded) {
++        forward_count[node]++;
++    } else {
++        drop_count[node]++;
++    }
++}
++
++void AODV::evaluate_node(nsaddr_t node) {
++    int fwd = forward_count[node];
++    int drop = drop_count[node];
++    if ((fwd + drop) >= 10) { // Check after 10 packets
++        double drop_ratio = (double)drop / (fwd + drop);
++        if (drop_ratio > MIS_MAX_ERROR) {
++            mark_misbehaving(node);
++        }
++    }
++}
++
++void AODV::prune_node(nsaddr_t node) {
++    rt_entry *rt = rtable.rt_lookup(node);
++    if (rt != 0) {
++        rt->rt_flags = RTF_INVALID;
++        rt->rt_expire = CURRENT_TIME + DELETE_PERIOD;
++    }
++    // Also remove it from precursor lists or neighbor info if needed
++}
